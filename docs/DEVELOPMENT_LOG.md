@@ -36,3 +36,31 @@ The upstream package version used by CI must later be compared with the
 version installed in the NERSC cosmodesi environment. A failure against
 upstream main is evidence of an API mismatch with that version, not by
 itself proof that the NERSC environment is broken.
+
+
+## 2026-11-10 — Core module unit tests
+
+**File added:** `tests/test_core_modules.py`.
+
+**Coverage added:**
+- Cosmology catalogue sorting, ID filtering, missing IDs, duplicate IDs,
+  non-finite values, dictionary construction, and metadata extraction.
+- Latin Hypercube reproducibility, bounds, invalid inputs, Pipeline A
+  shared nuisance design, and Pipeline B combined sampling.
+- Nuisance LHS reproducibility, bounds, fixed parameters, and nested
+  nuisance dictionary structure.
+- A regression check that `print_cosmology_summary` is available at
+  module scope.
+
+**Test data:** Small synthetic pandas DataFrames and temporary CSV files.
+No Abacus catalogue, CLASS calculation, or spectrum generation is needed.
+
+**CI environment adjustment:** The first external API test run installed
+DESI Python packages and passed Python compilation, but all three API
+imports failed because the GitHub runner lacked a system MPI library
+(`libmpi.so`). The workflow now installs OpenMPI runtime/development
+packages before Python dependencies. This is an environment setup failure,
+not yet evidence of an upstream Python API mismatch.
+
+**Status:** Core tests and MPI-enabled external API tests have been added to
+CI. Their results are pending; do not mark them as passing until observed.
