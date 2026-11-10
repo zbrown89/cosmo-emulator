@@ -2,9 +2,7 @@ name: API compatibility tests
 
 on:
   push:
-    branches: [test-connection]
   pull_request:
-    branches: [test-connection]
   workflow_dispatch:
 
 permissions:
