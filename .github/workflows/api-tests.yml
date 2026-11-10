@@ -18,7 +18,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Install system MPI runtime
         run: |
@@ -29,7 +29,7 @@ jobs:
         run: python -m pip install --upgrade pip pytest pandas
 
       - name: Install DESI cosmology packages
-        run: python -m pip install git+https://github.com/cosmodesi/desilike.git@refactor-jax
+        run: python -m pip install git+https://github.com/cosmodesi/desilike.git
 
       - name: Record installed package versions
         run: python -m pip freeze
