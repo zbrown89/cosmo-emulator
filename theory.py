@@ -62,6 +62,20 @@ NUISANCE_PARAMETERS = (
 )
 
 
+
+def _velocileptors_kvec(k, boost_prec=2):
+    """Internal velocileptors evaluation grid used by desilike."""
+    k = np.asarray(k, dtype="f8")
+    return np.concatenate([
+        [min(0.0005, k[0])],
+        np.geomspace(0.0015, 0.025, 10 * boost_prec, endpoint=True),
+        np.arange(
+            0.03,
+            max(0.5, k[-1]) + 0.015 / boost_prec,
+            0.01 / boost_prec,
+        ),
+    ])
+
 def _standard_bias_monomials(bias, eft, stochastic, nd=TABLE_ND):
     """Return the 19 coefficients matching the velocileptors PT-table columns."""
     b1 = float(bias["b1"])
@@ -218,43 +232,34 @@ class TheoryManager:
         params = get_cosmology_params(cosmo_params)
         cosmo = CosmoprimoCosmology(fiducial=params)
 
-        # Match the input linear-spectrum sampling used by desilike's
-        # BasePTPowerSpectrumMultipoles.
-        template = DirectSpectrum2Template(z=self.z, cosmo=cosmo)
-        kin = np.geomspace(1.0e-3, 1.0, 500)
-        template.init.update(k=kin)
+        # Match the k-grid and PT options of the current desilike
+        # LPTVelocileptorsPTSpectrum2Poles implementation.
+        k_table = _velocileptors_kvec(self.k)
+        kin = np.geomspace(
+            min(1.0e-4, k_table[0] / 2.0),
+            max(2.0, k_table[-1] * 2.0),
+            500,
+        )
 
-        # Build/evaluate only the cosmology template. This does not build
-        # the new Spectrum2Poles calculator and therefore does not import
-        # the missing velocileptors.LPT.lpt_rsd_jax module.
+        template = DirectSpectrum2Template(z=self.z, cosmo=cosmo)
+        template.update(k=kin)
+
+        # Build only the cosmology/template dependency. This evaluates
+        # the CLASS-backed linear spectrum and growth/AP quantities,
+        # without instantiating the missing JAX velocileptors calculator.
         template_pipe = build(template)
         template_pipe()
 
-        # Use the FFTW implementation that is present in the active
-        # Perlmutter environment.
-        from velocileptors.LPT import lpt_rsd_fftw
         from velocileptors.LPT.lpt_rsd_fftw import LPT_RSD
 
-        # Match desilike's FFTW implementation: cubic interpolation is
-        # used internally by the velocileptors FFTW module.
-        def _cubic_interp1d(x, y):
-            return scipy_interp1d(
-                x, y, kind="cubic", assume_sorted=True
-            )
-
-        lpt_rsd_fftw.interp1d = _cubic_interp1d
-
-        # These are the standard LPT velocileptors settings used by
-        # desilike's FFTW LPT implementation.
         pt_options = {
             "use_Pzel": False,
             "kIR": 0.2,
             "cutoff": 10,
-            "extrap_min": -5,
-            "extrap_max": 3,
-            "N": 4000,
+            "extrap_min": -4,
+            "extrap_max": 2,
+            "N": 800,
             "jn": 5,
-            "threads": 1,
         }
 
         linear_k = np.asarray(template.k, dtype=float)
@@ -269,25 +274,13 @@ class TheoryManager:
 
         pt = LPT_RSD(linear_k, linear_pk, **pt_options)
 
-        # Match the native 117-point PT-table grid used by the
-        # desilike LPT tracer implementation (boost_prec=2).
-        boost_prec = 2
-        k_table = np.concatenate(
-            [
-                [min(0.0005, self.k[0])],
-                np.geomspace(0.0015, 0.025, 10 * boost_prec, endpoint=True),
-                np.arange(
-                    0.03,
-                    max(0.5, self.k[-1]) + 0.015 / boost_prec,
-                    0.01 / boost_prec,
-                ),
-            ]
-        )
-
-        f = float(np.asarray(template.f))
+        # Growth rate f = fsigma8 / sigma8 from the initialized template.
+        f = float(template.fsigma8 / template.sigma8)
         qpar = float(np.asarray(template.qpar))
         qper = float(np.asarray(template.qper))
 
+        # FFTW make_pltable is the reference implementation for the
+        # JAX bias_table. Its default nmax=5 and ngauss=4 match desilike.
         pt.make_pltable(
             f,
             kv=k_table,
@@ -296,14 +289,13 @@ class TheoryManager:
             ngauss=self.mu,
         )
 
-        # velocileptors stores one row per k and one column per
-        # standard-basis bias/EFT/stochastic monomial.
+        # Column order: 12 bias monomials, 4 EFT terms, 3 stochastic terms.
         pktable = np.stack(
             [pt.p0ktable, pt.p2ktable, pt.p4ktable],
             axis=0,
         ).astype(float, copy=False)
 
-        expected_table_shape = (3, len(k_table), len(NUISANCE_PARAMETERS) + 10)
+        expected_table_shape = (3, len(k_table), 19)
         if pktable.shape != expected_table_shape:
             raise ValueError(
                 "Unexpected velocileptors PT-table shape: "
@@ -317,7 +309,6 @@ class TheoryManager:
             pktable=pktable,
             table_ells=ALL_TABLE_ELL,
         )
-
         return state, template_pipe
 
     # -----------------------------------------------------
